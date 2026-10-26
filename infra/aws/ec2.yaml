@@ -1,0 +1,122 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: ArtLock EC2 host with restricted SSH and least-privilege S3 object access.
+
+Parameters:
+  BucketName:
+    Type: String
+    Description: Existing private ArtLock S3 bucket name.
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC containing the selected public subnet.
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Public subnet with internet routing for initial deployment.
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Existing EC2 key pair used for SSH administration.
+  SshCidr:
+    Type: String
+    Description: Your public administrator IP in CIDR form (for example, 203.0.113.10/32).
+    AllowedPattern: "^(\\d{1,3}\\.){3}\\d{1,3}/\\d{1,2}$"
+  InstanceType:
+    Type: String
+    Default: t3.small
+    AllowedValues:
+      - t3.small
+      - t3.medium
+      - t3a.small
+      - t3a.medium
+
+Resources:
+  ArtLockSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ArtLock web access; SSH restricted to administrator CIDR.
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref SshCidr
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+
+  ArtLockInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ArtLockS3ObjectAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${BucketName}/*"
+
+  ArtLockInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref ArtLockInstanceRole
+
+  ArtLockInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: "{{resolve:ssm:/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id}}"
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyName
+      IamInstanceProfile: !Ref ArtLockInstanceProfile
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: "0"
+          GroupSet:
+            - !Ref ArtLockSecurityGroup
+          SubnetId: !Ref SubnetId
+      MetadataOptions:
+        HttpTokens: required
+        HttpEndpoint: enabled
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 20
+            VolumeType: gp3
+            Encrypted: true
+            DeleteOnTermination: true
+      Tags:
+        - Key: Name
+          Value: ArtLock
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -eu
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y python3-venv python3-pip nginx
+          systemctl enable nginx
+          systemctl start nginx
+
+Outputs:
+  InstanceId:
+    Value: !Ref ArtLockInstance
+  PublicIp:
+    Value: !GetAtt ArtLockInstance.PublicIp
+  PublicDns:
+    Value: !GetAtt ArtLockInstance.PublicDnsName

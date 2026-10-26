@@ -1,0 +1,21 @@
+[Unit]
+Description=ArtLock Flask application
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/artlock
+EnvironmentFile=/etc/artlock/artlock.env
+ExecStartPre=/opt/artlock/.venv/bin/flask --app backend/run.py db upgrade
+ExecStart=/opt/artlock/.venv/bin/gunicorn --chdir /opt/artlock/backend --workers 2 --bind 127.0.0.1:5000 run:app
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/artlock
+
+[Install]
+WantedBy=multi-user.target
