@@ -8,16 +8,17 @@
 4. Open the dashboard and confirm its artwork count, verification totals, favorite count, storage usage, trends, file-type visualization, category mix, and activity reflect workspace database data.
 5. Open a sample artwork, inspect its generated authorized preview and registered SHA-256, then download the artwork. Confirm the downloaded bytes match the local sample PNG.
 6. In **Verification**, submit the original sample file and confirm `MATCH` and identical SHA-256 values. Change one pixel or byte and confirm `MISMATCH`.
-7. Try a duplicate upload, invalid file bytes with an image extension, and a file over the configured size limit; confirm each is rejected with a useful message.
-8. Add a new version with notes. Confirm the timeline contains both versions and their distinct hashes.
-9. Change artwork title, description, category, and tags in its detail panel. Save and verify the new values persist; search by a tag.
-10. Favorite/unfavorite an artwork, use the favorites and file-type filters, and sort by name, date, and size.
-11. Download the inventory CSV and confirm it contains only the current workspace's actual authorized records.
-12. Archive and restore artwork. Confirm it moves between the active and archived vault filters.
-13. Register a second account and confirm it cannot view, preview, download, or export the first account's artwork.
-14. Inspect Activity & audit and the dashboard to confirm registration, download, version, favorite, metadata, export, and verification operations were persisted.
-15. Inspect local object storage: object bytes should not be readable as the original image/PDF. Use the authorized download to verify decryption works.
-16. Resize the browser to a mobile viewport, use the mobile menu, and verify the dashboard, vault, dialogs, and forms remain usable.
+7. In **Forensics Lab**, compare an image with itself and confirm exact SHA-256 match, 100% dHash similarity, image previews, and a downloadable JSON report. Compare a different image and confirm exact match is shown separately from the dHash estimate. Compare a PDF and confirm visual similarity is unavailable.
+8. Try a duplicate upload, invalid file bytes with an image extension, and a file over the configured size limit; confirm each is rejected with a useful message.
+9. Add a new version with notes. Confirm the timeline contains both versions and their distinct hashes.
+10. Change artwork title, description, category, and tags in its detail panel. Save and verify the new values persist; search by a tag.
+11. Favorite/unfavorite an artwork, use the favorites and file-type filters, and sort by name, date, and size.
+12. Download the inventory CSV and confirm it contains only the current workspace's actual authorized records.
+13. Archive and restore artwork. Confirm it moves between the active and archived vault filters.
+14. Register a second account and confirm it cannot view, preview, download, compare, or export the first account's artwork or forensic history.
+15. Inspect Activity & audit and the dashboard to confirm registration, download, version, favorite, metadata, export, verification, and forensics operations were persisted.
+16. Inspect local object storage: registered and forensic candidate object bytes should not be readable as the original image/PDF. Use authorized previews/downloads to verify decryption works.
+17. Resize the browser to a mobile viewport, use the mobile menu, and verify the dashboard, vault, dialogs, and forms remain usable.
 
 ## CAT II viva demonstration outline
 

@@ -1,8 +1,10 @@
 import base64
 import csv
 import io
+import json
 import secrets
 import uuid
+import warnings
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -18,11 +20,13 @@ from app.models import (
     Artwork,
     ArtworkVersion,
     AuditLog,
+    ForensicComparison,
     User,
     VerificationRecord,
     Workspace,
     WorkspaceMembership,
 )
+from app.forensics import SIMILARITY_METHOD, image_fingerprint, similarity_percent
 from app.security import (
     decrypt_bytes,
     digest,
@@ -98,6 +102,36 @@ def serialize_artwork(artwork):
     }
 
 
+def serialize_comparison(comparison):
+    return {
+        "id": comparison.id,
+        "artwork_id": comparison.artwork_id,
+        "artwork_title": comparison.artwork_title,
+        "artwork_filename": comparison.artwork_filename,
+        "artwork_content_type": comparison.artwork_content_type,
+        "artwork_sha256": comparison.artwork_sha256,
+        "candidate_filename": comparison.candidate_filename,
+        "candidate_content_type": comparison.candidate_content_type,
+        "candidate_file_size": comparison.candidate_file_size,
+        "candidate_sha256": comparison.candidate_sha256,
+        "artwork_width": comparison.artwork_width,
+        "artwork_height": comparison.artwork_height,
+        "candidate_width": comparison.candidate_width,
+        "candidate_height": comparison.candidate_height,
+        "exact_match": comparison.exact_match,
+        "similarity_percent": comparison.similarity_percent,
+        "similarity_method": comparison.similarity_method,
+        "created_at": utc_isoformat(comparison.created_at),
+        "preview_url": f"/api/v1/forensics/comparisons/{comparison.id}/candidate-preview",
+        "artwork_preview_url": (
+            f"/api/v1/forensics/comparisons/{comparison.id}/artwork-preview"
+            if comparison.artwork_content_type.startswith("image/")
+            else None
+        ),
+        "report_url": f"/api/v1/forensics/comparisons/{comparison.id}/report",
+    }
+
+
 def get_artwork(artwork_id):
     workspace_id = active_workspace_id()
     return Artwork.query.filter_by(id=artwork_id, workspace_id=workspace_id).first()
@@ -107,6 +141,35 @@ def get_storage():
     if "artlock_storage" not in current_app.extensions:
         current_app.extensions["artlock_storage"] = ObjectStorage(current_app.config)
     return current_app.extensions["artlock_storage"]
+
+
+def decrypt_stored_object(storage_key, nonce, ciphertext_sha256, plaintext_sha256):
+    ciphertext = get_storage().get(storage_key)
+    if digest(ciphertext) != ciphertext_sha256:
+        raise ValueError("Stored ciphertext checksum does not match its registered value.")
+    content = decrypt_bytes(ciphertext, nonce, current_app.config["ENCRYPTION_KEY"])
+    if digest(content) != plaintext_sha256:
+        raise ValueError("Decrypted content checksum does not match its registered value.")
+    return content
+
+
+def private_image_preview(content):
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(io.BytesIO(content)) as source:
+                image = ImageOps.exif_transpose(source)
+                image.thumbnail((900, 700))
+                if image.mode not in {"RGB", "RGBA"}:
+                    image = image.convert("RGBA" if "transparency" in image.info else "RGB")
+                output = io.BytesIO()
+                image.save(output, format="WEBP", quality=84, method=4)
+                output.seek(0)
+    except (Image.DecompressionBombWarning, Image.DecompressionBombError) as exc:
+        raise ValueError("Image preview could not be generated safely.") from exc
+    response = send_file(output, mimetype="image/webp", max_age=0)
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
 
 
 def inspect_upload(file_storage):
@@ -524,6 +587,208 @@ def verify_artwork(artwork_id):
         calculated_sha256=calculated,
         verified_at=utc_isoformat(record.created_at),
     )
+
+
+@api.post("/forensics/comparisons")
+def create_forensic_comparison():
+    user = active_user()
+    if not user:
+        return error("Authentication required.", 401)
+    artwork = get_artwork(request.form.get("artwork_id", ""))
+    if not artwork:
+        return error("Artwork not found.", 404)
+    file = request.files.get("file")
+    if not file:
+        return error("Select a candidate file to compare.")
+    try:
+        filename, content_type, content = inspect_upload(file)
+    except ValueError as exc:
+        return error(str(exc))
+
+    try:
+        artwork_content = decrypt_stored_object(
+            artwork.storage_key,
+            artwork.nonce,
+            artwork.ciphertext_sha256,
+            artwork.sha256,
+        )
+    except (StorageError, ValueError):
+        db.session.rollback()
+        current_app.logger.exception("Forensic comparison could not retrieve registered artwork")
+        return error("Registered artwork could not be securely retrieved.", 503)
+    artwork_width = artwork_height = artwork_dhash = None
+    candidate_width = candidate_height = candidate_dhash = None
+    try:
+        if artwork.content_type.startswith("image/"):
+            artwork_width, artwork_height, artwork_dhash = image_fingerprint(artwork_content)
+    except ValueError:
+        current_app.logger.exception("Registered artwork image could not be analyzed")
+        return error("Registered artwork image could not be analyzed safely.", 503)
+    try:
+        if content_type.startswith("image/"):
+            candidate_width, candidate_height, candidate_dhash = image_fingerprint(content)
+    except ValueError as exc:
+        return error(str(exc))
+
+    exact_match = secrets.compare_digest(artwork.sha256, digest(content))
+    visual_similarity = (
+        similarity_percent(artwork_dhash, candidate_dhash)
+        if artwork_dhash is not None and candidate_dhash is not None
+        else None
+    )
+    comparison_id = str(uuid.uuid4())
+    encrypted, nonce = encrypt_bytes(content, current_app.config["ENCRYPTION_KEY"])
+    candidate_key = f"{artwork.workspace_id}/forensics/{comparison_id}.enc"
+    try:
+        get_storage().put(candidate_key, encrypted)
+        comparison = ForensicComparison(
+            id=comparison_id,
+            workspace_id=artwork.workspace_id,
+            artwork_id=artwork.id,
+            user_id=user.id,
+            artwork_title=artwork.title,
+            artwork_filename=artwork.original_filename,
+            artwork_content_type=artwork.content_type,
+            artwork_sha256=artwork.sha256,
+            artwork_ciphertext_sha256=artwork.ciphertext_sha256,
+            artwork_storage_key=artwork.storage_key,
+            artwork_nonce=artwork.nonce,
+            candidate_filename=filename,
+            candidate_content_type=content_type,
+            candidate_file_size=len(content),
+            candidate_sha256=digest(content),
+            candidate_ciphertext_sha256=digest(encrypted),
+            candidate_storage_key=candidate_key,
+            candidate_nonce=nonce,
+            artwork_width=artwork_width,
+            artwork_height=artwork_height,
+            candidate_width=candidate_width,
+            candidate_height=candidate_height,
+            artwork_dhash=artwork_dhash,
+            candidate_dhash=candidate_dhash,
+            exact_match=exact_match,
+            similarity_percent=visual_similarity,
+            similarity_method=SIMILARITY_METHOD if visual_similarity is not None else None,
+        )
+        db.session.add(comparison)
+        log_event("forensics.compared", artwork.id, "match" if exact_match else "mismatch")
+        db.session.commit()
+    except (StorageError, SQLAlchemyError):
+        db.session.rollback()
+        current_app.logger.exception("Forensic comparison could not be persisted")
+        try:
+            get_storage().delete(candidate_key)
+        except StorageError:
+            current_app.logger.exception("Failed to remove an unreferenced forensic candidate")
+        return error("Forensic comparison could not be saved securely.", 503)
+
+    return jsonify(comparison=serialize_comparison(comparison)), 201
+
+
+@api.get("/forensics/comparisons")
+def list_forensic_comparisons():
+    if not active_user():
+        return error("Authentication required.", 401)
+    comparisons = (
+        ForensicComparison.query.filter_by(workspace_id=active_workspace_id())
+        .order_by(ForensicComparison.created_at.desc())
+        .limit(100)
+        .all()
+    )
+    return jsonify(comparisons=[serialize_comparison(item) for item in comparisons])
+
+
+def get_forensic_comparison(comparison_id):
+    return ForensicComparison.query.filter_by(
+        id=comparison_id,
+        workspace_id=active_workspace_id(),
+    ).first()
+
+
+@api.get("/forensics/comparisons/<comparison_id>/candidate-preview")
+def preview_forensic_candidate(comparison_id):
+    if not active_user():
+        return error("Authentication required.", 401)
+    comparison = get_forensic_comparison(comparison_id)
+    if not comparison:
+        return error("Comparison not found.", 404)
+    if not comparison.candidate_content_type.startswith("image/"):
+        return error("Preview is available for image candidates only.", 415)
+    try:
+        content = decrypt_stored_object(
+            comparison.candidate_storage_key,
+            comparison.candidate_nonce,
+            comparison.candidate_ciphertext_sha256,
+            comparison.candidate_sha256,
+        )
+        return private_image_preview(content)
+    except (StorageError, ValueError, UnidentifiedImageError, OSError):
+        current_app.logger.exception("Forensic candidate preview could not be generated")
+        return error("Candidate preview could not be securely generated.", 503)
+
+
+@api.get("/forensics/comparisons/<comparison_id>/artwork-preview")
+def preview_forensic_artwork(comparison_id):
+    if not active_user():
+        return error("Authentication required.", 401)
+    comparison = get_forensic_comparison(comparison_id)
+    if not comparison:
+        return error("Comparison not found.", 404)
+    if not comparison.artwork_content_type.startswith("image/"):
+        return error("Preview is available for image artwork only.", 415)
+    try:
+        content = decrypt_stored_object(
+            comparison.artwork_storage_key,
+            comparison.artwork_nonce,
+            comparison.artwork_ciphertext_sha256,
+            comparison.artwork_sha256,
+        )
+        return private_image_preview(content)
+    except (StorageError, ValueError, UnidentifiedImageError, OSError):
+        current_app.logger.exception("Forensic artwork preview could not be generated")
+        return error("Registered artwork preview could not be securely generated.", 503)
+
+
+@api.get("/forensics/comparisons/<comparison_id>/report")
+def download_forensic_report(comparison_id):
+    if not active_user():
+        return error("Authentication required.", 401)
+    comparison = get_forensic_comparison(comparison_id)
+    if not comparison:
+        return error("Comparison not found.", 404)
+    report = {
+        "report_type": "ArtLock artwork comparison",
+        "comparison": serialize_comparison(comparison),
+        "integrity": {
+            "exact_sha256_match": comparison.exact_match,
+            "registered_sha256": comparison.artwork_sha256,
+            "candidate_sha256": comparison.candidate_sha256,
+        },
+        "visual_similarity": (
+            {
+                "percent": comparison.similarity_percent,
+                "method": comparison.similarity_method,
+                "registered_dhash": comparison.artwork_dhash,
+                "candidate_dhash": comparison.candidate_dhash,
+            }
+            if comparison.similarity_percent is not None
+            else None
+        ),
+        "limitations": [
+            "SHA-256 equality establishes byte equality only; it does not establish ownership, authorship, originality, or legal rights.",
+            "The dHash similarity percentage is a perceptual screening estimate, not proof of copying, authorship, or ownership.",
+        ],
+    }
+    output = io.BytesIO(json.dumps(report, ensure_ascii=False, indent=2).encode("utf-8"))
+    response = send_file(
+        output,
+        mimetype="application/json",
+        as_attachment=True,
+        download_name=f"artlock-comparison-{comparison.id}.json",
+        max_age=0,
+    )
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
 
 
 @api.post("/artworks/<artwork_id>/versions")

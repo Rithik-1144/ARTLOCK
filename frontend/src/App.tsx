@@ -29,6 +29,7 @@ import {
   X,
 } from 'lucide-react'
 import './App.css'
+import { ForensicsLab, type Comparison as ForensicComparison } from './ForensicsLab'
 
 const RegistrationChart = lazy(() => import('./RegistrationChart'))
 const StorageTrend = lazy(() =>
@@ -100,6 +101,7 @@ const navItems = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'vault', label: 'Artwork vault', icon: FolderOpen },
   { id: 'verification', label: 'Verification', icon: Fingerprint },
+  { id: 'forensics', label: 'Forensics Lab', icon: FileSearch },
   { id: 'activity', label: 'Activity & audit', icon: Clock3 },
 ]
 
@@ -155,6 +157,9 @@ function App() {
   const [uploadOpen, setUploadOpen] = useState(false)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [seedingDemo, setSeedingDemo] = useState(false)
+  const [forensicComparisons, setForensicComparisons] = useState<ForensicComparison[]>([])
+  const [forensicHistoryLoading, setForensicHistoryLoading] = useState(false)
+  const [forensicHistoryError, setForensicHistoryError] = useState('')
 
   const notify = useCallback((message: string) => {
     setToast(message)
@@ -235,6 +240,22 @@ function App() {
     }
   }
 
+  const loadForensicHistory = async () => {
+    setForensicHistoryLoading(true)
+    setForensicHistoryError('')
+    try {
+      const result = await request<{ comparisons: ForensicComparison[] }>(
+        '/forensics/comparisons',
+        csrfToken,
+      )
+      setForensicComparisons(result.comparisons)
+    } catch (error) {
+      setForensicHistoryError(error instanceof Error ? error.message : 'Could not load comparison history.')
+    } finally {
+      setForensicHistoryLoading(false)
+    }
+  }
+
   const logout = async () => {
     try {
       await request('/auth/logout', csrfToken, { method: 'POST' })
@@ -242,6 +263,7 @@ function App() {
       setCsrfToken('')
       setArtworks([])
       setOverview(null)
+      setForensicComparisons([])
     } catch (error) {
       notify(error instanceof Error ? error.message : 'Unable to sign out.')
     }
@@ -258,6 +280,7 @@ function App() {
     setView(next)
     setMobileNavOpen(false)
     if (next === 'vault') void loadData(search)
+    if (next === 'forensics') void loadForensicHistory()
   }
 
   return (
@@ -311,6 +334,18 @@ function App() {
           {view === 'overview' && <OverviewPage overview={overview} events={events} loading={loading} seedingDemo={seedingDemo} onNavigate={navigate} onNew={() => setUploadOpen(true)} onSeedDemo={() => void seedDemoGallery()} todayLabel={todayLabel} />}
           {view === 'vault' && <VaultPage artworks={artworks} loading={loading} onOpen={setSelected} onNew={() => setUploadOpen(true)} onRefresh={(archived) => void loadData(search, archived)} onSearch={onSearch} search={search} setSearch={setSearch} csrfToken={csrfToken} notify={notify} />}
           {view === 'verification' && <VerificationPage artworks={artworks} csrfToken={csrfToken} notify={notify} />}
+          {view === 'forensics' && <ForensicsLab
+            artworks={artworks}
+            csrfToken={csrfToken}
+            comparisons={forensicComparisons}
+            loadingHistory={forensicHistoryLoading}
+            historyError={forensicHistoryError}
+            onRefresh={() => void loadForensicHistory()}
+            onCreated={(comparison) => {
+              setForensicComparisons((current) => [comparison, ...current])
+              setForensicHistoryError('')
+            }}
+          />}
           {view === 'activity' && <ActivityPage events={events} />}
           {view === 'settings' && <SettingsPage user={user} backend={storageBackend} />}
         </div>

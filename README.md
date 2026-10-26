@@ -2,7 +2,7 @@
 
 ArtLock is a secure artwork registration and integrity-vault application. The implemented core includes a responsive React/TypeScript dashboard, Flask API, persistent SQLAlchemy data, cookie-based authentication, workspace isolation, AES-256-GCM encrypted object storage, SHA-256 registration and comparison, immutable version history records, archive/restore, favorites, editable categories and tags, search/filter/sort, secured inventory CSV export, audit events, and live database-backed analytics.
 
-> **Current scope:** this is a working application core, not the full enterprise feature list. PDF certificates, sharing, collections, collaboration, watermarking, in-app notifications, account recovery, email verification, member administration, quotas, and pixel-level image comparison are not implemented. Inventory CSV export is implemented.
+> **Current scope:** this is a working application core, not the full enterprise feature list. PDF certificates, sharing, collections, collaboration, watermarking, in-app notifications, account recovery, email verification, member administration, and quotas are not implemented. The Forensics Lab provides an explainable perceptual-hash estimate, not pixel-level or legal-authorship analysis. Inventory CSV export is implemented.
 
 ## Requirements
 
@@ -78,6 +78,12 @@ The seeder writes the sample PNGs to `backend/demo_assets`, then registers them 
 - Local mode is encrypted storage on the configured local disk, not a cloud service. Production should use a private S3 bucket, restricted IAM role, HTTPS, managed secrets, durable PostgreSQL, and a shared rate-limit store.
 - SHA-256 equality confirms byte equality only. It does not prove ownership, authorship, originality, or legal rights.
 
+## Artwork Forensics Lab
+
+Open **Forensics Lab** to compare an uploaded PNG, JPEG, WebP, or PDF against an artwork in the signed-in workspace. Comparison history is persisted; candidate files are encrypted through the same AES-256-GCM object-storage path as registered artwork. Authorized image previews are generated on request, and each record can be downloaded as a JSON report.
+
+Exact SHA-256 equality is reported independently from image similarity. For two images, the app computes a 64-bit horizontal difference hash (`dhash-8x8-v1`) from an EXIF-oriented grayscale image resized to 9×8 pixels; similarity is the percentage of equal hash bits. It is a lightweight screening estimate that can miss important visual differences, especially changes to colors, details, or layout. PDFs receive exact-hash comparison only. Neither result proves copying, authorship, originality, ownership, or legal rights.
+
 ## Free-first Render and S3-compatible storage
 
 The selected deployment is Render Free for the app and Cloudflare R2 for S3-compatible object storage; no EC2 instance is required. The root `Dockerfile` builds and serves the frontend and Flask app as one service. `render.yaml` describes the Free web service and database. See [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) for account setup, environment variables, and verification.
@@ -108,5 +114,5 @@ Deployment templates are starting points, not proof of completed provisioning. A
 - Versions are preserved with per-version hashes and metadata, but there is not yet a restore-current-version endpoint.
 - Signup does not include email verification or password reset.
 - Login throttling uses Flask-Limiter's configured backend. Use Redis or another shared persistent backend in production.
-- PDF certificates, watermarks, sharing links, comments, collection CRUD, notifications, report/PDF exports, quota enforcement, and admin controls remain future work.
+- PDF certificates, PDF report exports, watermarks, sharing links, comments, collection CRUD, notifications, quota enforcement, and admin controls remain future work. Forensics comparisons currently export JSON reports.
 - Image previews are generated from the authorized, decrypted original on request and are not stored as unencrypted thumbnails. PDFs are represented as documents rather than fabricated artwork previews.

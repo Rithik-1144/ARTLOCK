@@ -93,6 +93,37 @@ class VerificationRecord(db.Model):
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
 
 
+class ForensicComparison(db.Model):
+    id = db.Column(db.String(36), primary_key=True)
+    workspace_id = db.Column(db.Integer, db.ForeignKey("workspace.id"), nullable=False, index=True)
+    artwork_id = db.Column(db.String(36), db.ForeignKey("artwork.id"), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    artwork_title = db.Column(db.String(200), nullable=False)
+    artwork_filename = db.Column(db.String(255), nullable=False)
+    artwork_content_type = db.Column(db.String(100), nullable=False)
+    artwork_sha256 = db.Column(db.String(64), nullable=False)
+    artwork_ciphertext_sha256 = db.Column(db.String(64), nullable=False)
+    artwork_storage_key = db.Column(db.String(500), nullable=False)
+    artwork_nonce = db.Column(db.String(64), nullable=False)
+    candidate_filename = db.Column(db.String(255), nullable=False)
+    candidate_content_type = db.Column(db.String(100), nullable=False)
+    candidate_file_size = db.Column(db.Integer, nullable=False)
+    candidate_sha256 = db.Column(db.String(64), nullable=False)
+    candidate_ciphertext_sha256 = db.Column(db.String(64), nullable=False)
+    candidate_storage_key = db.Column(db.String(500), nullable=False, unique=True)
+    candidate_nonce = db.Column(db.String(64), nullable=False)
+    artwork_width = db.Column(db.Integer, nullable=True)
+    artwork_height = db.Column(db.Integer, nullable=True)
+    candidate_width = db.Column(db.Integer, nullable=True)
+    candidate_height = db.Column(db.Integer, nullable=True)
+    artwork_dhash = db.Column(db.String(16), nullable=True)
+    candidate_dhash = db.Column(db.String(16), nullable=True)
+    exact_match = db.Column(db.Boolean, nullable=False)
+    similarity_percent = db.Column(db.Integer, nullable=True)
+    similarity_method = db.Column(db.String(40), nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow, index=True)
+
+
 class AuditLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     workspace_id = db.Column(db.Integer, db.ForeignKey("workspace.id"), nullable=False, index=True)

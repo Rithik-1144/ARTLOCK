@@ -1,12 +1,26 @@
 import io
+import json
 from pathlib import Path
 
 import pytest
+from PIL import Image, ImageDraw
 
-from app.models import Artwork, AuditLog, VerificationRecord
+from app.models import Artwork, AuditLog, ForensicComparison, VerificationRecord
 from app.security import decrypt_bytes, encrypt_bytes
 from app import db
 from conftest import png_file, register, upload
+
+
+def patterned_png(invert=False):
+    image = Image.new("RGB", (64, 64), "white")
+    background = "black" if invert else "white"
+    foreground = "white" if invert else "black"
+    image.paste(background, (0, 0, 64, 64))
+    ImageDraw.Draw(image).rectangle((0, 0, 31, 63), fill=foreground)
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    buffer.seek(0)
+    return buffer
 
 
 def test_frontend_routes_serve_built_app_and_keep_api_not_found(client, app, tmp_path):
@@ -144,6 +158,163 @@ def test_same_bytes_match_and_changed_bytes_mismatch_are_persisted(app, client):
             "MATCH",
             "MISMATCH",
         ]
+
+
+def test_forensics_persists_encrypted_comparison_previews_and_report(app, client):
+    token = register(client)
+    original = patterned_png()
+    original_bytes = original.getvalue()
+    artwork = upload(client, token, title="Pattern study", image=original).json["artwork"]
+    comparison_response = client.post(
+        "/api/v1/forensics/comparisons",
+        headers={"X-CSRF-Token": token},
+        data={
+            "artwork_id": artwork["id"],
+            "file": (io.BytesIO(original_bytes), "same-pattern.png"),
+        },
+        content_type="multipart/form-data",
+    )
+    assert comparison_response.status_code == 201, comparison_response.json
+    comparison = comparison_response.json["comparison"]
+    assert comparison["exact_match"] is True
+    assert comparison["similarity_percent"] == 100
+    assert comparison["similarity_method"] == "dhash-8x8-v1"
+    assert (comparison["artwork_width"], comparison["artwork_height"]) == (64, 64)
+    assert (comparison["candidate_width"], comparison["candidate_height"]) == (64, 64)
+
+    with app.app_context():
+        record = db.session.get(ForensicComparison, comparison["id"])
+        encrypted_candidate = (Path(app.config["STORAGE_DIR"]) / record.candidate_storage_key).read_bytes()
+        assert encrypted_candidate != original_bytes
+        assert record.candidate_sha256 == artwork["sha256"]
+
+    history = client.get("/api/v1/forensics/comparisons")
+    assert history.status_code == 200
+    assert [item["id"] for item in history.json["comparisons"]] == [comparison["id"]]
+    candidate_preview = client.get(comparison["preview_url"])
+    registered_preview = client.get(comparison["artwork_preview_url"])
+    assert candidate_preview.status_code == registered_preview.status_code == 200
+    assert candidate_preview.mimetype == registered_preview.mimetype == "image/webp"
+    assert candidate_preview.headers["Cache-Control"] == "private, no-store"
+
+    report = client.get(comparison["report_url"])
+    assert report.status_code == 200
+    assert report.mimetype == "application/json"
+    report_data = json.loads(report.data)
+    assert report_data["integrity"]["exact_sha256_match"] is True
+    assert report_data["visual_similarity"]["method"] == "dhash-8x8-v1"
+    assert any("does not establish ownership" in item for item in report_data["limitations"])
+
+
+def test_forensics_visual_estimate_and_pdf_hash_only(app, client):
+    token = register(client)
+    artwork = upload(client, token, image=patterned_png()).json["artwork"]
+    visual = client.post(
+        "/api/v1/forensics/comparisons",
+        headers={"X-CSRF-Token": token},
+        data={
+            "artwork_id": artwork["id"],
+            "file": (patterned_png(invert=True), "inverse.png"),
+        },
+        content_type="multipart/form-data",
+    )
+    assert visual.status_code == 201, visual.json
+    assert visual.json["comparison"]["exact_match"] is False
+    assert visual.json["comparison"]["similarity_percent"] is not None
+
+    pdf = client.post(
+        "/api/v1/forensics/comparisons",
+        headers={"X-CSRF-Token": token},
+        data={
+            "artwork_id": artwork["id"],
+            "file": (io.BytesIO(b"%PDF-1.4\nminimal test document"), "candidate.pdf"),
+        },
+        content_type="multipart/form-data",
+    )
+    assert pdf.status_code == 201, pdf.json
+    assert pdf.json["comparison"]["exact_match"] is False
+    assert pdf.json["comparison"]["similarity_percent"] is None
+    assert pdf.json["comparison"]["similarity_method"] is None
+    assert pdf.json["comparison"]["candidate_width"] is None
+
+
+def test_forensics_storage_failure_reports_error_without_history(client, monkeypatch):
+    from app.storage import StorageError
+
+    token = register(client)
+    artwork = upload(client, token).json["artwork"]
+    deleted_keys = []
+    from app.api import get_storage
+
+    with client.application.app_context():
+        existing_storage = get_storage()
+
+    class FailedStorage:
+        def get(self, key):
+            return existing_storage.get(key)
+
+        def put(self, key, content):
+            raise StorageError("storage unavailable")
+
+        def delete(self, key):
+            deleted_keys.append(key)
+
+    monkeypatch.setattr("app.api.get_storage", lambda: FailedStorage())
+    response = client.post(
+        "/api/v1/forensics/comparisons",
+        headers={"X-CSRF-Token": token},
+        data={
+            "artwork_id": artwork["id"],
+            "file": (png_file(), "candidate.png"),
+        },
+        content_type="multipart/form-data",
+    )
+    assert response.status_code == 503
+    assert "could not be saved securely" in response.json["error"]
+    assert len(deleted_keys) == 1
+    assert client.get("/api/v1/forensics/comparisons").json["comparisons"] == []
+
+
+def test_forensics_requires_auth_and_csrf_and_is_workspace_scoped(client):
+    assert client.get("/api/v1/forensics/comparisons").status_code == 401
+    first_token = register(client)
+    artwork = upload(client, first_token).json["artwork"]
+    missing_csrf = client.post(
+        "/api/v1/forensics/comparisons",
+        data={
+            "artwork_id": artwork["id"],
+            "file": (png_file(), "candidate.png"),
+        },
+        content_type="multipart/form-data",
+    )
+    assert missing_csrf.status_code == 403
+    created = client.post(
+        "/api/v1/forensics/comparisons",
+        headers={"X-CSRF-Token": first_token},
+        data={
+            "artwork_id": artwork["id"],
+            "file": (png_file(), "candidate.png"),
+        },
+        content_type="multipart/form-data",
+    )
+    assert created.status_code == 201
+    comparison = created.json["comparison"]
+
+    client.post("/api/v1/auth/logout", headers={"X-CSRF-Token": first_token})
+    second_token = register(client, "other@example.com")
+    assert client.get("/api/v1/forensics/comparisons").json["comparisons"] == []
+    for suffix in ("candidate-preview", "artwork-preview", "report"):
+        assert client.get(f"/api/v1/forensics/comparisons/{comparison['id']}/{suffix}").status_code == 404
+    cross_workspace = client.post(
+        "/api/v1/forensics/comparisons",
+        headers={"X-CSRF-Token": second_token},
+        data={
+            "artwork_id": artwork["id"],
+            "file": (png_file(), "candidate.png"),
+        },
+        content_type="multipart/form-data",
+    )
+    assert cross_workspace.status_code == 404
 
 
 def test_csrf_duplicate_upload_validation_and_cross_workspace_access(client):
