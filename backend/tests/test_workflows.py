@@ -54,6 +54,34 @@ def test_registration_authentication_and_workspace(app, client):
         assert AuditLog.query.filter_by(action="user.login_failed").count() == 1
 
 
+def test_authenticated_demo_seed_is_workspace_scoped_and_repeatable(app, client, monkeypatch, tmp_path):
+    import seed_demo
+
+    assert client.post("/api/v1/demo/seed").status_code == 401
+    token = register(client)
+    monkeypatch.setattr(seed_demo, "create_app", lambda: app)
+    monkeypatch.setattr(
+        seed_demo,
+        "DEMO_ITEMS",
+        [("Test Demo", "Generated sample artwork.", ("#101d31", "#52627d", "#f3c89e", "#354b55"))],
+    )
+    monkeypatch.setattr(seed_demo, "DEMO_CATEGORIES", ["Illustration"])
+    app.config["DEMO_ASSETS_DIR"] = str(tmp_path)
+
+    seeded = client.post("/api/v1/demo/seed", headers={"X-CSRF-Token": token})
+
+    assert seeded.status_code == 200, seeded.json
+    assert seeded.json["registered"] == 1
+    assert len(client.get("/api/v1/artworks").json["artworks"]) == 1
+
+    again = client.post("/api/v1/demo/seed", headers={"X-CSRF-Token": token})
+
+    assert again.status_code == 200, again.json
+    assert again.json["registered"] == 0
+    assert again.json["already_present"] == 1
+    assert len(client.get("/api/v1/artworks").json["artworks"]) == 1
+
+
 def test_artwork_upload_encrypts_object_and_download_decrypts(app, client):
     token = register(client)
     source = png_file()

@@ -4,6 +4,7 @@ import io
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request, send_file, session
 from flask import Response
@@ -316,6 +317,29 @@ def list_artworks():
     query = query.order_by(ordering.get(sort, Artwork.created_at.desc()))
     artworks = query.limit(200).all()
     return jsonify(artworks=[serialize_artwork(item) for item in artworks])
+
+
+@api.post("/demo/seed")
+def seed_demo_workspace():
+    user = active_user()
+    if not user:
+        return error("Authentication required.", 401)
+    try:
+        from seed_demo import seed_account
+
+        summary = seed_account(
+            user.email,
+            Path(
+                current_app.config.get(
+                    "DEMO_ASSETS_DIR",
+                    Path(current_app.root_path).parent / "demo_assets",
+                )
+            ),
+        )
+    except (RuntimeError, SystemExit):
+        current_app.logger.exception("Demo gallery could not be loaded")
+        return error("The demonstration gallery could not be loaded. Please try again.", 503)
+    return jsonify(**summary)
 
 
 @api.post("/artworks")

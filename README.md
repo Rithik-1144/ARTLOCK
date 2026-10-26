@@ -58,15 +58,17 @@ npm --prefix frontend run dev
 
 Vite forwards `/api` requests to the Flask server. Open the URL Vite prints, register an account, and upload a PNG, JPEG, WebP, or PDF up to the configured limit (25 MiB by default). The dashboard refreshes workspace metrics every 30 seconds while visible and after key operations.
 
-### Load the demonstration workspace
+### Load the demonstration gallery
 
-After registering your own account, run this from the project root to generate ten original demonstration images and register them into that account's first workspace:
+Sign in to your workspace and click **Load sample gallery** on the empty dashboard. The authenticated, repeatable action adds the ten generated demonstration artworks to the current workspace, records real verification comparisons, and skips samples already loaded. This also works on the deployed Render app.
+
+For a local workspace, the seeder CLI is also available:
 
 ```powershell
 python backend\seed_demo.py --email your-account@example.com
 ```
 
-The repeatable seeder writes the sample PNGs to `backend/demo_assets`, then registers them through the normal authenticated API upload path. Artwork is actually encrypted and hashed; six originals are compared to create genuine match records, and a pixel-altered copy is compared once to create a genuine mismatch example. Existing demo entries and the existing mismatch example are skipped on reruns; other artwork is never deleted or overwritten. The sample artworks are clearly marked as generated demonstrations, not user-created originals. The script requires an existing account and does not create a default password or demo login.
+The seeder writes the sample PNGs to `backend/demo_assets`, then registers them through the normal authenticated API upload path. Artwork is encrypted and hashed; six originals are compared to create match records, and a pixel-altered copy creates a mismatch example. Existing demo entries and the mismatch example are skipped on reruns; other artwork is not deleted or overwritten. The samples are marked as generated demonstrations, not user-created originals. The CLI requires an existing account and does not create a default password or demo login.
 
 ## Verification & encryption model
 

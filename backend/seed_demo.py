@@ -262,11 +262,19 @@ def seed_account(email, output_dir):
             raise RuntimeError("Could not record the demonstration mismatch comparison.")
         checks_created += 1
 
+    summary = {
+        "workspace": workspace_name,
+        "registered": len(added),
+        "already_present": len(skipped),
+        "sample_count": len(files),
+        "integrity_checks_created": checks_created,
+    }
     print(f"Workspace: {workspace_name}")
     print(f"Registered this run: {len(added)}")
     print(f"Already present: {len(skipped)}")
     print(f"Valid sample files: {len(files)} in {output_dir}")
     print(f"New integrity checks this run: {checks_created} genuine server-side comparisons.")
+    return summary
 
 
 def sample_artwork_path(artwork, files):

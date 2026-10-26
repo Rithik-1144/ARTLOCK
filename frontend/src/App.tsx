@@ -154,6 +154,7 @@ function App() {
   const [selected, setSelected] = useState<Artwork | null>(null)
   const [uploadOpen, setUploadOpen] = useState(false)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [seedingDemo, setSeedingDemo] = useState(false)
 
   const notify = useCallback((message: string) => {
     setToast(message)
@@ -211,6 +212,27 @@ function App() {
     setSearch(value)
     if (view !== 'vault') setView('vault')
     await loadData(value.trim())
+  }
+
+  const seedDemoGallery = async () => {
+    setSeedingDemo(true)
+    try {
+      const result = await request<{ registered: number; already_present: number }>(
+        '/demo/seed',
+        csrfToken,
+        { method: 'POST' },
+      )
+      await loadData()
+      notify(
+        result.registered
+          ? `Added ${result.registered} sample artworks to your vault.`
+          : 'The sample gallery is already in your vault.',
+      )
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Could not load the sample gallery.')
+    } finally {
+      setSeedingDemo(false)
+    }
   }
 
   const logout = async () => {
@@ -286,7 +308,7 @@ function App() {
         </header>
 
         <div className="page-content">
-          {view === 'overview' && <OverviewPage overview={overview} events={events} loading={loading} onNavigate={navigate} onNew={() => setUploadOpen(true)} todayLabel={todayLabel} />}
+          {view === 'overview' && <OverviewPage overview={overview} events={events} loading={loading} seedingDemo={seedingDemo} onNavigate={navigate} onNew={() => setUploadOpen(true)} onSeedDemo={() => void seedDemoGallery()} todayLabel={todayLabel} />}
           {view === 'vault' && <VaultPage artworks={artworks} loading={loading} onOpen={setSelected} onNew={() => setUploadOpen(true)} onRefresh={(archived) => void loadData(search, archived)} onSearch={onSearch} search={search} setSearch={setSearch} csrfToken={csrfToken} notify={notify} />}
           {view === 'verification' && <VerificationPage artworks={artworks} csrfToken={csrfToken} notify={notify} />}
           {view === 'activity' && <ActivityPage events={events} />}
@@ -369,14 +391,16 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: User, token: 
 }
 
 function OverviewPage({
-  overview, events, loading, onNavigate, onNew,
+  overview, events, loading, seedingDemo, onNavigate, onNew, onSeedDemo,
   todayLabel,
 }: {
   overview: Overview | null
   events: AuditEvent[]
   loading: boolean
+  seedingDemo: boolean
   onNavigate: (view: string) => void
   onNew: () => void
+  onSeedDemo: () => void
   todayLabel: string
 }) {
   const trend = overview?.registration_trend ?? []
@@ -392,7 +416,10 @@ function OverviewPage({
     <>
       <div className="page-heading heading-row">
         <div><span className="eyebrow">{todayLabel}</span><h1>Good to see you.</h1><p>Your creative work, protected in one place.</p></div>
-        <button className="button button-primary" onClick={onNew}><Plus size={17} />Register artwork</button>
+        <div className="heading-actions">
+          {(overview?.total_artworks ?? 0) === 0 && <button className="button button-secondary" onClick={onSeedDemo} disabled={seedingDemo}>{seedingDemo ? <LoaderCircle className="spin" size={15} /> : <ImagePlus size={15} />}Load sample gallery</button>}
+          <button className="button button-primary" onClick={onNew}><Plus size={17} />Register artwork</button>
+        </div>
       </div>
       <div className="metric-grid">
         <MetricCard label="Registered artworks" value={loading ? '—' : String(overview?.total_artworks ?? 0)} note="Across your workspace" icon={<FileImage size={17} />} accent="violet" />

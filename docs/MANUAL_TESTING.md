@@ -4,7 +4,7 @@
 
 1. Start Flask and Vite using the README instructions and confirm `/api/v1/health` reports `status: ok` and the configured backend.
 2. Register a new account, workspace, and 12-character-minimum password. Sign out and sign back in.
-3. Run `python backend\seed_demo.py --email your-account@example.com`. Confirm ten genuine sample PNG files exist in `backend/demo_assets` and that all ten appear in the vault.
+3. On an empty authenticated dashboard, select **Load sample gallery**. Confirm ten generated demonstration artworks appear in the vault. Repeat the action and confirm it does not create duplicates. Confirm six matches and one modified-file mismatch are recorded.
 4. Open the dashboard and confirm its artwork count, verification totals, favorite count, storage usage, trends, file-type visualization, category mix, and activity reflect workspace database data.
 5. Open a sample artwork, inspect its generated authorized preview and registered SHA-256, then download the artwork. Confirm the downloaded bytes match the local sample PNG.
 6. In **Verification**, submit the original sample file and confirm `MATCH` and identical SHA-256 values. Change one pixel or byte and confirm `MISMATCH`.

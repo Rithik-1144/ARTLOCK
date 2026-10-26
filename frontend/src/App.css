@@ -50,6 +50,7 @@ kbd { border: 1px solid #303441; color: #777d8d; font: 10px 'DM Mono',monospace;
 .eyebrow { color: #8d83ba; font: 500 9px/1.4 'DM Mono',monospace; letter-spacing: .11em; }
 .heading-row { display: flex; justify-content: space-between; align-items: flex-end; }
 .heading-row .button { margin-bottom: 3px; }
+.heading-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .button { height: 35px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid transparent; border-radius: 6px; padding: 0 13px; font-size: 10px; font-weight: 600; text-decoration: none; cursor: pointer; transition: .15s ease; white-space: nowrap; }
 .button:disabled { opacity: .56; cursor: not-allowed; }
 .button-primary { color: #fff; border-color: #7667c9; background: linear-gradient(180deg,#7669bd,#6558a5); box-shadow: 0 2px 8px #161321; }
