@@ -2,7 +2,7 @@
 
 ArtLock is a secure artwork registration and integrity-vault application. The implemented core includes a responsive React/TypeScript dashboard, Flask API, persistent SQLAlchemy data, cookie-based authentication, workspace isolation, AES-256-GCM encrypted object storage, SHA-256 registration and comparison, immutable version history records, archive/restore, favorites, editable categories and tags, search/filter/sort, secured inventory CSV export, audit events, and live database-backed analytics.
 
-> **Current scope:** this is a working application core, not the full enterprise feature list. PDF certificates, sharing, collections, collaboration, watermarking, in-app notifications, account recovery, email verification, member administration, quotas, and pixel-level image comparison are not implemented. Inventory CSV export is implemented. No external deployment or AWS account operation has been performed.
+> **Current scope:** this is a working application core, not the full enterprise feature list. PDF certificates, sharing, collections, collaboration, watermarking, in-app notifications, account recovery, email verification, member administration, quotas, and pixel-level image comparison are not implemented. Inventory CSV export is implemented.
 
 ## Requirements
 
@@ -76,13 +76,13 @@ The repeatable seeder writes the sample PNGs to `backend/demo_assets`, then regi
 - Local mode is encrypted storage on the configured local disk, not a cloud service. Production should use a private S3 bucket, restricted IAM role, HTTPS, managed secrets, durable PostgreSQL, and a shared rate-limit store.
 - SHA-256 equality confirms byte equality only. It does not prove ownership, authorship, originality, or legal rights.
 
-## Public PaaS and AWS deployment
+## Free-first Render and S3-compatible storage
 
-Deployment artifacts are included: the root `Dockerfile` builds the frontend and Flask app as one service, `render.yaml` describes the Render PaaS service and PostgreSQL database, `infra/aws/s3-bucket.yaml` creates a private versioned bucket, and `infra/aws/ec2.yaml` creates a restricted EC2 host with an instance profile scoped to that bucket. Nginx and systemd examples are in `infra/aws/ec2`. See [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) for full provisioning and verification instructions.
+The selected deployment is Render Free for the app and Cloudflare R2 for S3-compatible object storage; no EC2 instance is required. The root `Dockerfile` builds and serves the frontend and Flask app as one service. `render.yaml` describes the Free web service and database. See [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) for account setup, environment variables, and verification.
 
-Set `STORAGE_BACKEND=s3`, `S3_BUCKET`, and `AWS_REGION`. The AWS SDK credential chain is used. On EC2, use the supplied instance role rather than access keys. ArtLock encrypts bytes before sending them to S3 and the bucket additionally applies server-side AES-256 encryption. Keep S3 Block Public Access enabled and do not grant public object access.
+Configure `STORAGE_BACKEND=s3`, `S3_BUCKET`, `AWS_REGION=auto`, `S3_ENDPOINT_URL`, `S3_ACCESS_KEY_ID`, and `S3_SECRET_ACCESS_KEY` in Render. R2 is S3-compatible but is not Amazon S3, so this deployment does not satisfy an AWS-S3-specific rubric requirement. The AWS S3 and EC2 CloudFormation files remain optional alternatives and can incur charges.
 
-The Render blueprint uses paid persistent service/database plans; review current pricing before deploying. Render's encryption key, S3 bucket, region, restricted AWS identity, and shared rate-limit Redis endpoint must be configured in its secret settings. Do not store AWS credentials in the repository.
+Render Free's local filesystem is ephemeral, its web service sleeps when idle, and its free PostgreSQL database currently expires after 30 days. R2's free allowances are limited and usage beyond them can incur charges. Verify provider billing terms and usage before deployment.
 
 ## Tests and frontend checks
 
@@ -98,7 +98,7 @@ Tests cover registration/login, CSRF enforcement, workspace isolation, file vali
 
 For production, use PostgreSQL and apply migrations during release. Set `ARTLOCK_ENV=production`, a strong `ARTLOCK_SECRET_KEY`, and a URL-safe base64 `ARTLOCK_ENCRYPTION_KEY` that decodes to exactly 32 bytes. Do not rely on Flask's development server, local ephemeral disk, the in-memory rate limiter, or local SQLite for a multi-instance deployment. Configure HTTPS termination, persistent encrypted backups, a shared rate-limit backend, log retention, and monitoring.
 
-The EC2 and PaaS templates are deployment-ready starting points, not proof of a completed deployment. Actual AWS and public PaaS provisioning remains account-dependent and must be verified in the target account.
+Deployment templates are starting points, not proof of completed provisioning. Actual Render and R2 account setup remains account-dependent and must be verified in the provider dashboards.
 
 ## Important limitations
 

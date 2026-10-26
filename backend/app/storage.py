@@ -15,7 +15,20 @@ class ObjectStorage:
                 raise StorageError("S3_BUCKET is required when STORAGE_BACKEND=s3.")
             import boto3
 
-            self.client = boto3.client("s3", region_name=config["AWS_REGION"])
+            endpoint_url = config.get("S3_ENDPOINT_URL")
+            access_key_id = config.get("S3_ACCESS_KEY_ID")
+            secret_access_key = config.get("S3_SECRET_ACCESS_KEY")
+            if endpoint_url and not (access_key_id and secret_access_key):
+                raise StorageError(
+                    "S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY are required for a custom S3 endpoint."
+                )
+            client_options = {"region_name": config["AWS_REGION"]}
+            if endpoint_url:
+                client_options["endpoint_url"] = endpoint_url
+            if access_key_id and secret_access_key:
+                client_options["aws_access_key_id"] = access_key_id
+                client_options["aws_secret_access_key"] = secret_access_key
+            self.client = boto3.client("s3", **client_options)
         elif self.backend == "local":
             self.root = Path(config["STORAGE_DIR"]).resolve()
             self.root.mkdir(parents=True, exist_ok=True)
@@ -25,12 +38,14 @@ class ObjectStorage:
     def put(self, key, data):
         try:
             if self.backend == "s3":
-                self.client.put_object(
-                    Bucket=self.config["S3_BUCKET"],
-                    Key=key,
-                    Body=data,
-                    ServerSideEncryption="AES256",
-                )
+                request = {
+                    "Bucket": self.config["S3_BUCKET"],
+                    "Key": key,
+                    "Body": data,
+                }
+                if not self.config.get("S3_ENDPOINT_URL"):
+                    request["ServerSideEncryption"] = "AES256"
+                self.client.put_object(**request)
             else:
                 path = self._local_path(key)
                 path.parent.mkdir(parents=True, exist_ok=True)

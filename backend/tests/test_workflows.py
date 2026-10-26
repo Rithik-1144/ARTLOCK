@@ -1,6 +1,8 @@
 import io
 from pathlib import Path
 
+import pytest
+
 from app.models import Artwork, AuditLog, VerificationRecord
 from app.security import decrypt_bytes, encrypt_bytes
 from app import db
@@ -165,8 +167,6 @@ def test_aes_gcm_rejects_modified_ciphertext(app):
     ciphertext, nonce = encrypt_bytes(b"private artwork bytes", key)
     assert decrypt_bytes(ciphertext, nonce, key) == b"private artwork bytes"
     corrupted = ciphertext[:-1] + bytes([ciphertext[-1] ^ 1])
-    import pytest
-
     with pytest.raises(Exception):
         decrypt_bytes(corrupted, nonce, key)
 
@@ -183,6 +183,82 @@ def test_storage_failure_is_reported_and_does_not_register_artwork(client, monke
     response = upload(client, token)
     assert response.status_code == 503
     assert client.get("/api/v1/artworks").json["artworks"] == []
+
+
+def test_s3_compatible_storage_uses_endpoint_credentials_and_skips_aws_sse(monkeypatch):
+    import boto3
+
+    from app.storage import ObjectStorage, StorageError
+
+    calls = {}
+
+    class FakeClient:
+        def put_object(self, **kwargs):
+            calls["put"] = kwargs
+
+    def fake_client(service, **kwargs):
+        calls["client"] = (service, kwargs)
+        return FakeClient()
+
+    monkeypatch.setattr(boto3, "client", fake_client)
+    config = {
+        "STORAGE_BACKEND": "s3",
+        "S3_BUCKET": "artlock-demo",
+        "AWS_REGION": "auto",
+        "S3_ENDPOINT_URL": "https://account-id.r2.cloudflarestorage.com",
+        "S3_ACCESS_KEY_ID": "test-access-key",
+        "S3_SECRET_ACCESS_KEY": "test-secret-key",
+    }
+
+    storage = ObjectStorage(config)
+    storage.put("workspace/artwork/object.enc", b"encrypted-demo-bytes")
+
+    assert calls["client"] == (
+        "s3",
+        {
+            "region_name": "auto",
+            "endpoint_url": config["S3_ENDPOINT_URL"],
+            "aws_access_key_id": "test-access-key",
+            "aws_secret_access_key": "test-secret-key",
+        },
+    )
+    assert calls["put"] == {
+        "Bucket": "artlock-demo",
+        "Key": "workspace/artwork/object.enc",
+        "Body": b"encrypted-demo-bytes",
+    }
+
+    config["S3_ACCESS_KEY_ID"] = ""
+    with pytest.raises(StorageError, match="required for a custom S3 endpoint"):
+        ObjectStorage(config)
+
+
+def test_aws_s3_storage_keeps_server_side_encryption(monkeypatch):
+    import boto3
+
+    from app.storage import ObjectStorage
+
+    calls = {}
+
+    class FakeClient:
+        def put_object(self, **kwargs):
+            calls["put"] = kwargs
+
+    monkeypatch.setattr(boto3, "client", lambda service, **kwargs: FakeClient())
+    storage = ObjectStorage(
+        {
+            "STORAGE_BACKEND": "s3",
+            "S3_BUCKET": "artlock-demo",
+            "AWS_REGION": "ap-southeast-2",
+            "S3_ENDPOINT_URL": None,
+            "S3_ACCESS_KEY_ID": None,
+            "S3_SECRET_ACCESS_KEY": None,
+        }
+    )
+
+    storage.put("workspace/artwork/object.enc", b"encrypted-demo-bytes")
+
+    assert calls["put"]["ServerSideEncryption"] == "AES256"
 
 
 def test_favorites_categories_tags_search_sort_and_inventory_export(client):

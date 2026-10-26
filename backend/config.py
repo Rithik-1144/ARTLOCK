@@ -28,6 +28,9 @@ class Config:
     )
     S3_BUCKET = os.getenv("S3_BUCKET")
     AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+    S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL") or None
+    S3_ACCESS_KEY_ID = os.getenv("S3_ACCESS_KEY_ID")
+    S3_SECRET_ACCESS_KEY = os.getenv("S3_SECRET_ACCESS_KEY")
     ENCRYPTION_KEY = os.getenv("ARTLOCK_ENCRYPTION_KEY")
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"

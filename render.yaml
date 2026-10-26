@@ -2,7 +2,7 @@ services:
   - type: web
     name: artlock
     runtime: docker
-    plan: starter
+    plan: free
     dockerfilePath: ./Dockerfile
     dockerContext: .
     preDeployCommand: cd /app && flask --app backend/run.py db upgrade
@@ -23,9 +23,15 @@ services:
       - key: S3_BUCKET
         sync: false
       - key: AWS_REGION
-        value: us-east-1
-      - key: RATELIMIT_STORAGE_URI
+        value: auto
+      - key: S3_ENDPOINT_URL
         sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: RATELIMIT_STORAGE_URI
+        value: memory://
 databases:
   - name: artlock-db
-    plan: basic-256mb
+    plan: free
