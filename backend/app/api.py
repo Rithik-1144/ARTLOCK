@@ -9,6 +9,7 @@ from flask import Blueprint, current_app, jsonify, request, send_file, session
 from flask import Response
 from flask_limiter.util import get_remote_address
 from PIL import Image, ImageOps, UnidentifiedImageError
+from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.utils import secure_filename
 
 from app import db, limiter
@@ -172,6 +173,15 @@ def store_version(artwork, user, filename, content_type, content, notes=""):
 
 @api.get("/health")
 def health():
+    try:
+        db.session.execute(db.select(User.id).limit(1))
+    except SQLAlchemyError:
+        db.session.rollback()
+        current_app.logger.exception("Health check could not query the application database")
+        return jsonify(
+            status="error",
+            error="Database is unavailable or its migrations have not been applied.",
+        ), 503
     return jsonify(status="ok", storage=current_app.config["STORAGE_BACKEND"])
 
 

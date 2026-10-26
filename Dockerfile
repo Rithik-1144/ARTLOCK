@@ -17,4 +17,4 @@ COPY migrations /app/migrations
 COPY --from=frontend-build /build/frontend/dist /app/frontend/dist
 WORKDIR /app/backend
 EXPOSE 10000
-CMD ["sh", "-c", "gunicorn -w 2 -b 0.0.0.0:${PORT} run:app"]
+CMD ["sh", "-c", "cd /app && flask --app backend/run.py db upgrade && exec gunicorn --chdir /app/backend -w 2 -b 0.0.0.0:${PORT} run:app"]

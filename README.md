@@ -39,7 +39,7 @@ python -m flask db upgrade
 
 After a model change, generate a migration with `python -m flask db migrate -m "Describe schema change"` and review it before applying with `python -m flask db upgrade`.
 
-Run migrations for each schema update; the application does not create or drop tables at startup. Tests create isolated temporary databases.
+Run migrations for each schema update. The production Docker entrypoint applies pending migrations before starting Gunicorn; non-Docker deployments must run `flask --app backend/run.py db upgrade` as a release/start step. Tests create isolated temporary databases.
 
 ### Start the services
 

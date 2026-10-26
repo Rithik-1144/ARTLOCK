@@ -18,6 +18,16 @@ def test_frontend_routes_serve_built_app_and_keep_api_not_found(client, app, tmp
     assert client.get("/api/v1/not-a-route").status_code == 404
 
 
+def test_health_reports_unavailable_database_schema(app, client):
+    with app.app_context():
+        db.drop_all()
+
+    response = client.get("/api/v1/health")
+
+    assert response.status_code == 503
+    assert response.json["status"] == "error"
+
+
 def test_registration_authentication_and_workspace(app, client):
     token = register(client)
     assert client.get("/api/v1/auth/me").json["user"]["email"] == "artist@example.com"
@@ -33,6 +43,10 @@ def test_registration_authentication_and_workspace(app, client):
     assert client.post(
         "/api/v1/auth/login",
         json={"email": "artist@example.com", "password": "incorrect"},
+    ).status_code == 401
+    assert client.post(
+        "/api/v1/auth/login",
+        json={"email": "missing@example.com", "password": "incorrect"},
     ).status_code == 401
     with app.app_context():
         assert AuditLog.query.filter_by(action="user.login_failed").count() == 1
